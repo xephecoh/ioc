@@ -84,21 +84,20 @@ public class ClassPathApplicationContext implements ApplicationContext {
                             String fieldBeanDefinitionName = dependency.getKey();
                             String fieldBeanDefinitionValue = dependency.getValue();
                             String setterName = getSetterName(fieldBeanDefinitionName);
-                            System.out.println(fieldBeanDefinitionName + setterName + fieldBeanDefinitionValue);
-                            Class<?> fieldClass = bean.getValue().getClass().getDeclaredField(fieldBeanDefinitionName).getType();
-                            if(fieldClass.isPrimitive()) {
-                                Object fieldValue = JavaNumberTypeCast.castPrimitive(fieldBeanDefinitionValue, fieldClass);
+                            Field field = bean.getValue().getClass().getDeclaredField(fieldBeanDefinitionName);
+                            if (field.getType().isPrimitive()) {
+                                Object fieldValue = JavaNumberTypeCast.castPrimitive(fieldBeanDefinitionValue, field.getType());
                                 if (fieldValue != null) {
-                                    Method method = bean.getClass().getMethod(setterName, fieldValue.getClass());
-                                    method.invoke(bean, fieldValue);
+                                    Method method = bean.getValue().getClass().getMethod(setterName, field.getType());
+                                    method.invoke(bean.getValue(), fieldValue);
                                 }
                             }
                         } catch (NoSuchMethodException e) {
-                            System.out.println("No  method inside  " + bean.getValue().getClass());
+                            System.out.println("No  method inside  " + bean.getValue().getClass() + e.getMessage());
                         } catch (IllegalAccessException | InvocationTargetException e) {
                             System.out.println(e.getMessage());
                         } catch (NoSuchFieldException e) {
-                            System.out.println("No field inside  " + bean.getClass());
+                            System.out.println("No field inside  " + bean.getValue().getClass());
                         }
                     }
                 }
@@ -118,10 +117,10 @@ public class ClassPathApplicationContext implements ApplicationContext {
                             String propertyName = dependency.getKey();
                             Object referenceObject = getBean(propertyName);
                             String setterName = getSetterName(propertyName);
-                            Method method = bean.getClass().getMethod(setterName, Object.class);
-                            method.invoke(bean, referenceObject);
+                            Method method = bean.getValue().getClass().getMethod(setterName, referenceObject.getClass());
+                            method.invoke(bean.getValue(), referenceObject);
                         } catch (NoSuchMethodException e) {
-                            System.out.println("No method inside class " + bean.getClass());
+                            System.out.println("No method inside class ref " + bean.getValue().getClass());
                         } catch (IllegalAccessException | InvocationTargetException e) {
                             System.out.println(e.getMessage());
                         }
