@@ -1,6 +1,7 @@
 package com.dzytsiuk.ioc.context;
 
 
+import com.dzytsiuk.ioc.context.cast.JavaNumberTypeCast;
 import com.dzytsiuk.ioc.entity.Bean;
 import com.dzytsiuk.ioc.entity.BeanDefinition;
 import com.dzytsiuk.ioc.io.BeanDefinitionReader;
@@ -80,18 +81,17 @@ public class ClassPathApplicationContext implements ApplicationContext {
                     Map<String, String> valueDependencies = beanDefinition.getDependencies();
                     for (Map.Entry<String, String> dependency : valueDependencies.entrySet()) {
                         try {
-                            String fieldName = dependency.getKey();
-                            String fieldValue = dependency.getValue();
-                            String setterName = getSetterName(fieldName);
-                            System.out.println(fieldName + setterName + fieldValue);
-                            Field field = bean.getValue().getClass().getDeclaredField(fieldName);
-                            if (field.getType().getName().equals("int")) {
-                                Method method = bean.getClass().getMethod(setterName, int.class);
-                                method.setAccessible(true);
-                                method.invoke(bean, Integer.parseInt(fieldValue));
-                            } else if (field.getType().getName().equals("String")) {
-                                Method method = bean.getClass().getMethod(setterName, String.class);
-                                method.invoke(bean, fieldValue);
+                            String fieldBeanDefinitionName = dependency.getKey();
+                            String fieldBeanDefinitionValue = dependency.getValue();
+                            String setterName = getSetterName(fieldBeanDefinitionName);
+                            System.out.println(fieldBeanDefinitionName + setterName + fieldBeanDefinitionValue);
+                            Class<?> fieldClass = bean.getValue().getClass().getDeclaredField(fieldBeanDefinitionName).getType();
+                            if(fieldClass.isPrimitive()) {
+                                Object fieldValue = JavaNumberTypeCast.castPrimitive(fieldBeanDefinitionValue, fieldClass);
+                                if (fieldValue != null) {
+                                    Method method = bean.getClass().getMethod(setterName, fieldValue.getClass());
+                                    method.invoke(bean, fieldValue);
+                                }
                             }
                         } catch (NoSuchMethodException e) {
                             System.out.println("No  method inside  " + bean.getValue().getClass());
