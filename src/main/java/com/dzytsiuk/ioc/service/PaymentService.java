@@ -26,6 +26,15 @@ public class PaymentService {
                 Objects.equals(mailService, that.mailService);
     }
 
+
+    public MailService getMailService() {
+        return mailService;
+    }
+
+    public int getMaxAmount() {
+        return maxAmount;
+    }
+
     @Override
     public int hashCode() {
 

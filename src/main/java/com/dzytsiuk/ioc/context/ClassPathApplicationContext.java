@@ -4,9 +4,9 @@ package com.dzytsiuk.ioc.context;
 import com.dzytsiuk.ioc.context.cast.JavaNumberTypeCast;
 import com.dzytsiuk.ioc.entity.Bean;
 import com.dzytsiuk.ioc.entity.BeanDefinition;
+import com.dzytsiuk.ioc.exception.BeanInstantiationException;
 import com.dzytsiuk.ioc.io.BeanDefinitionReader;
 import com.dzytsiuk.ioc.io.XMLBeanDefinitionReader;
-
 import java.lang.reflect.Field;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
@@ -38,12 +38,23 @@ public class ClassPathApplicationContext implements ApplicationContext {
 
     @Override
     public <T> T getBean(Class<T> clazz) {
-        return null;
+        return
+                (T)beans.entrySet()
+                        .stream()
+                        .filter(bean -> bean.getValue().getClass().equals(clazz))
+                        .findAny()
+                        .orElseGet(null);
     }
 
     @Override
     public <T> T getBean(String name, Class<T> clazz) {
-        return null;
+        return
+                (T) beans.entrySet()
+                        .stream()
+                        .filter(bean -> bean.getValue().getId().equals(name))
+                        .filter(beans -> beans.getValue().getClass().equals(clazz))
+                        .findAny()
+                        .orElseGet(null);
     }
 
     @Override
@@ -58,75 +69,86 @@ public class ClassPathApplicationContext implements ApplicationContext {
 
     private void instantiateBeans(List<BeanDefinition> beanDefinitions) {
         beanDefinitions.stream()
-                .map(beanDefinition -> {
-                    Object object;
-                    try {
-                        object = Class.forName(beanDefinition.getBeanClassName()).getConstructor().newInstance();
-                    } catch (InstantiationException | ClassNotFoundException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
-                        throw new RuntimeException(e.getMessage());
-                    }
-                    Bean bean = new Bean();
-                    bean.setId(beanDefinition.getId());
-                    bean.setValue(object);
-                    return bean;
-                }).forEach(bean -> beans.put(bean.getId(), bean));
+                .map(this::getBeanFromBeanDefinition)
+                .forEach(bean -> beans.put(bean.getId(), bean));
+    }
+
+    private Bean getBeanFromBeanDefinition(BeanDefinition beanDefinition) {
+        try {
+            Object object;
+            object = Class.forName(beanDefinition.getBeanClassName()).getConstructor().newInstance();
+            Bean bean = new Bean();
+            bean.setId(beanDefinition.getId());
+            bean.setValue(object);
+            return bean;
+        } catch (InstantiationException | ClassNotFoundException | IllegalAccessException | InvocationTargetException | NoSuchMethodException e) {
+            throw new BeanInstantiationException("Unable to instantiate bean with name " + beanDefinition.getId(), e);
+        }
     }
 
 
     private void injectValueDependencies(List<BeanDefinition> beanDefinitions) {
-        beanDefinitions.forEach(beanDefinition -> {
-            Bean bean = beans.get(beanDefinition.getId());
-            if (bean != null) {
-                if (beanDefinition.getDependencies() != null) {
-                    Map<String, String> valueDependencies = beanDefinition.getDependencies();
-                    for (Map.Entry<String, String> dependency : valueDependencies.entrySet()) {
-                        try {
-                            String fieldBeanDefinitionName = dependency.getKey();
-                            String fieldBeanDefinitionValue = dependency.getValue();
-                            String setterName = getSetterName(fieldBeanDefinitionName);
-                            Field field = bean.getValue().getClass().getDeclaredField(fieldBeanDefinitionName);
-                            if (field.getType().isPrimitive()) {
-                                Object fieldValue = JavaNumberTypeCast.castPrimitive(fieldBeanDefinitionValue, field.getType());
-                                if (fieldValue != null) {
-                                    Method method = bean.getValue().getClass().getMethod(setterName, field.getType());
-                                    method.invoke(bean.getValue(), fieldValue);
-                                }
-                            }
-                        } catch (NoSuchMethodException e) {
-                            System.out.println("No  method inside  " + bean.getValue().getClass() + e.getMessage());
-                        } catch (IllegalAccessException | InvocationTargetException e) {
-                            System.out.println(e.getMessage());
-                        } catch (NoSuchFieldException e) {
-                            System.out.println("No field inside  " + bean.getValue().getClass());
-                        }
+        beanDefinitions.forEach(this::injectValDependency);
+    }
+
+    private void injectValDependency(BeanDefinition beanDefinition) {
+        Bean bean = beans.get(beanDefinition.getId());
+        if (bean == null) {
+            return;
+        }
+        if (beanDefinition.getDependencies() == null) {
+            return;
+        }
+        Map<String, String> valueDependencies = beanDefinition.getDependencies();
+        if (valueDependencies == null) {
+            return;
+        }
+        valueDependencies.forEach((k, v) -> {
+            try {
+                String setterName = getSetterName(k);
+                Object beanValue = bean.getValue();
+                Class<?> clazz = beanValue.getClass();
+                Field field = clazz.getDeclaredField(k);
+                Class<?> type = field.getType();
+                if (type.isPrimitive()) {
+                    Object fieldValue = JavaNumberTypeCast.castPrimitive(v, type);
+                    if (fieldValue != null) {
+                        Method method = clazz.getMethod(setterName, type);
+                        method.invoke(beanValue, fieldValue);
                     }
                 }
+            } catch (NoSuchFieldException | NoSuchMethodException | IllegalAccessException | InvocationTargetException e) {
+                throw new BeanInstantiationException("Unable to inject dependency to bean " + bean.getId(), e);
             }
         });
     }
 
 
     private void injectRefDependencies(List<BeanDefinition> beanDefinitions) {
+        injectRefDependency(beanDefinitions);
+    }
+
+    private void injectRefDependency(List<BeanDefinition> beanDefinitions) {
         beanDefinitions.forEach(beanDefinition -> {
             Bean bean = beans.get(beanDefinition.getId());
-            if (bean != null) {
-                Map<String, String> refDependencies = beanDefinition.getRefDependencies();
-                if (refDependencies != null) {
-                    for (Map.Entry<String, String> dependency : refDependencies.entrySet()) {
-                        try {
-                            String propertyName = dependency.getKey();
-                            Object referenceObject = getBean(propertyName);
-                            String setterName = getSetterName(propertyName);
-                            Method method = bean.getValue().getClass().getMethod(setterName, referenceObject.getClass());
-                            method.invoke(bean.getValue(), referenceObject);
-                        } catch (NoSuchMethodException e) {
-                            System.out.println("No method inside class ref " + bean.getValue().getClass());
-                        } catch (IllegalAccessException | InvocationTargetException e) {
-                            System.out.println(e.getMessage());
-                        }
-                    }
-                }
+            if (bean == null) {
+                return;
             }
+            Map<String, String> refDependencies = beanDefinition.getRefDependencies();
+            if (refDependencies == null) {
+                return;
+            }
+            refDependencies.forEach((propertyName, value) -> {
+                try {
+                    Class<?> refObjectType = bean.getValue().getClass().getDeclaredField(value).getType();
+                    Object referencedObject = getBean(propertyName);
+                    String setterName = getSetterName(propertyName);
+                    Method method = bean.getValue().getClass().getMethod(setterName, refObjectType);
+                    method.invoke(bean.getValue(), referencedObject);
+                } catch (NoSuchMethodException | IllegalAccessException | InvocationTargetException | NoSuchFieldException e) {
+                    throw new BeanInstantiationException("Unable to inject dependency to bean " + bean.getId(), e);
+                }
+            });
         });
     }
 
